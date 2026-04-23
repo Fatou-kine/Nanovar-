@@ -1,0 +1,48 @@
+# Données biologiques sensibles
+*.fastq
+*.fastq.gz
+*.bam
+*.bai
+*.vcf
+*.vcf.gz
+*.bcf
+*.sam
+
+# Outputs et résultats
+OUTPUT/
+results/
+*/clair3_output/
+*/igv_snapshots/
+
+# Modèles (trop lourds)
+models/
+
+# Référence génome
+hg38/
+*.fa
+*.fai
+*.mmi
+
+# Config avec chemins locaux sensibles
+config.yaml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+*.egg-info/
+
+# Mac
+.DS_Store
+.AppleScript
+
+# Logs
+*.log
+logs/
+annovar/
+data/
+tools/
+static/
+templates/

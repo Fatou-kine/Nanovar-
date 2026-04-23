@@ -1,0 +1,36 @@
+# ============================================================
+# NANOVAR - Configuration exemple
+# Copier ce fichier en config.yaml et remplir les chemins
+# cp config.example.yaml config.yaml
+# ============================================================
+
+# Génome de référence hg38
+reference_genome: "/chemin/vers/hg38/hg38.fa"
+
+# Picard
+picard_jar: "/chemin/vers/tools/picard.jar"
+
+# ANNOVAR
+annovar_dir: "/chemin/vers/annovar"
+humandb: "/chemin/vers/annovar/humandb"
+
+# Clair3 via Docker
+# Image validée et testée
+clair3_docker_image: "hkubal/clair3:v1.0.10"
+# Chemin du modèle sur ton disque local (sera monté dans Docker)
+clair3_model_local: "/chemin/vers/models/rerio/clair3_models/r1041_e82_400bps_sup_v430"
+# Chemin du modèle à l'intérieur du conteneur Docker (ne pas modifier)
+clair3_model: "/opt/models/r1041_e82_400bps_sup_v430"
+
+# Dossier de sortie des résultats
+output_dir: "/chemin/vers/OUTPUT"
+
+# Ressources système
+# Recommandé: ne pas dépasser (nombre de coeurs physiques / 2)
+threads: "8"
+
+# Nombre maximum d'échantillons en parallèle (max 5)
+max_parallel: 2
+
+# IGV - optionnel, laisser vide si non utilisé
+igv_path: ""
