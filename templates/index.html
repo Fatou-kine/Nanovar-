@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NanoVar — Analyse Nanopore</title>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:        #0a0e14;
+            --bg2:       #111720;
+            --bg3:       #1a2233;
+            --border:    #1e2d45;
+            --teal:      #00d4aa;
+            --teal-dim:  #00a882;
+            --teal-glow: rgba(0,212,170,0.12);
+            --amber:     #f5a623;
+            --red:       #e05c5c;
+            --blue:      #4a9eff;
+            --text:      #e2e8f0;
+            --text-dim:  #7a8fa6;
+            --text-mid:  #a0b0c8;
+            --mono:      'IBM Plex Mono', monospace;
+            --sans:      'IBM Plex Sans', sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--sans);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── GRID BACKGROUND ── */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(0,212,170,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,212,170,0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ── HEADER ── */
+        header {
+            position: relative;
+            z-index: 10;
+            border-bottom: 1px solid var(--border);
+            background: rgba(10,14,20,0.95);
+            backdrop-filter: blur(10px);
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 60px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            border: 1.5px solid var(--teal);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .logo-icon::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--teal-glow);
+        }
+
+        .logo-dna {
+            font-family: var(--mono);
+            font-size: 14px;
+            color: var(--teal);
+            font-weight: 500;
+        }
+
+        .logo-text {
+            font-family: var(--mono);
+            font-size: 18px;
+            font-weight: 500;
+            color: var(--text);
+            letter-spacing: 0.05em;
+        }
+
+        .logo-text span { color: var(--teal); }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .docker-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .docker-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--text-dim);
+            transition: background 0.3s;
+        }
+
+        .docker-dot.ok    { background: var(--teal); box-shadow: 0 0 6px var(--teal); }
+        .docker-dot.error { background: var(--red); }
+
+        /* ── LAYOUT ── */
+        .app {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            grid-template-columns: 380px 1fr;
+            gap: 0;
+            min-height: calc(100vh - 60px);
+        }
+
+        /* ── PANEL GAUCHE ── */
+        .panel-left {
+            border-right: 1px solid var(--border);
+            background: var(--bg2);
+            padding: 28px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            overflow-y: auto;
+            max-height: calc(100vh - 60px);
+        }
+
+        .section-title {
+            font-family: var(--mono);
+            font-size: 10px;
+            letter-spacing: 0.15em;
+            color: var(--teal);
+            text-transform: uppercase;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        /* ── FORMULAIRE ── */
+        .form-group { margin-bottom: 16px; }
+
+        label {
+            display: block;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-mid);
+            margin-bottom: 6px;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        input[type="text"], select, textarea {
+            width: 100%;
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-family: var(--sans);
+            font-size: 13px;
+            padding: 9px 12px;
+            border-radius: 6px;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        input[type="text"]:focus,
+        select:focus {
+            border-color: var(--teal-dim);
+            box-shadow: 0 0 0 3px var(--teal-glow);
+        }
+
+        select option { background: var(--bg3); }
+
+        /* ── MODE TABS ── */
+        .mode-tabs {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 4px;
+            background: var(--bg);
+            padding: 4px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .mode-tab {
+            padding: 7px 4px;
+            font-size: 11px;
+            font-weight: 500;
+            text-align: center;
+            border-radius: 5px;
+            cursor: pointer;
+            color: var(--text-dim);
+            transition: all 0.2s;
+            border: none;
+            background: transparent;
+            letter-spacing: 0.02em;
+        }
+
+        .mode-tab.active {
+            background: var(--teal);
+            color: var(--bg);
+            box-shadow: 0 2px 8px rgba(0,212,170,0.3);
+        }
+
+        /* ── AUTOCOMPLÉTION GÈNE ── */
+        .gene-wrapper { position: relative; }
+
+        .autocomplete-list {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0; right: 0;
+            background: var(--bg3);
+            border: 1px solid var(--teal-dim);
+            border-radius: 6px;
+            z-index: 100;
+            max-height: 200px;
+            overflow-y: auto;
+            display: none;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        }
+
+        .autocomplete-list.show { display: block; }
+
+        .autocomplete-item {
+            padding: 9px 12px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.15s;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .autocomplete-item:last-child { border-bottom: none; }
+        .autocomplete-item:hover { background: var(--teal-glow); }
+
+        .gene-name {
+            font-family: var(--mono);
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--teal);
+        }
+
+        .gene-info {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-align: right;
+            max-width: 160px;
+            line-height: 1.3;
+        }
+
+        /* ── LISTE ÉCHANTILLONS ── */
+        .samples-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .sample-item {
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            animation: slideIn 0.2s ease;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .sample-info { flex: 1; }
+
+        .sample-name {
+            font-family: var(--mono);
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        .sample-meta {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 2px;
+        }
+
+        .sample-remove {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 16px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: color 0.2s;
+        }
+
+        .sample-remove:hover { color: var(--red); }
+
+        /* ── BOUTONS ── */
+        .btn-add {
+            width: 100%;
+            padding: 9px;
+            background: transparent;
+            border: 1px dashed var(--border);
+            color: var(--text-dim);
+            font-size: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: var(--sans);
+        }
+
+        .btn-add:hover {
+            border-color: var(--teal-dim);
+            color: var(--teal);
+            background: var(--teal-glow);
+        }
+
+        .btn-launch {
+            width: 100%;
+            padding: 13px;
+            background: var(--teal);
+            border: none;
+            color: var(--bg);
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: var(--sans);
+            letter-spacing: 0.02em;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-launch:hover {
+            background: var(--teal-dim);
+            box-shadow: 0 4px 16px rgba(0,212,170,0.3);
+            transform: translateY(-1px);
+        }
+
+        .btn-launch:disabled {
+            background: var(--bg3);
+            color: var(--text-dim);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* ── PANEL DROIT ── */
+        .panel-right {
+            padding: 28px 32px;
+            overflow-y: auto;
+            max-height: calc(100vh - 60px);
+        }
+
+        /* ── JOBS DASHBOARD ── */
+        .jobs-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .job-card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px 22px;
+            transition: border-color 0.3s;
+            animation: slideIn 0.3s ease;
+        }
+
+        .job-card.en_cours  { border-color: var(--teal-dim); }
+        .job-card.termine   { border-color: rgba(0,212,170,0.3); }
+        .job-card.erreur    { border-color: rgba(224,92,92,0.4); }
+        .job-card.en_attente { border-color: rgba(245,166,35,0.3); }
+
+        .job-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }
+
+        .job-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .job-name {
+            font-family: var(--mono);
+            font-size: 15px;
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        .job-badge {
+            font-size: 10px;
+            font-weight: 500;
+            padding: 3px 8px;
+            border-radius: 20px;
+            font-family: var(--mono);
+            letter-spacing: 0.05em;
+        }
+
+        .badge-en_cours   { background: rgba(0,212,170,0.15);  color: var(--teal); }
+        .badge-termine    { background: rgba(0,212,170,0.1);   color: var(--teal-dim); }
+        .badge-erreur     { background: rgba(224,92,92,0.15);  color: var(--red); }
+        .badge-en_attente { background: rgba(245,166,35,0.15); color: var(--amber); }
+        .badge-annule     { background: rgba(122,143,166,0.15);color: var(--text-dim); }
+
+        .job-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-sm {
+            padding: 5px 12px;
+            font-size: 11px;
+            font-weight: 500;
+            border-radius: 5px;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-mid);
+            transition: all 0.15s;
+            font-family: var(--sans);
+        }
+
+        .btn-sm:hover { background: var(--bg3); color: var(--text); }
+        .btn-sm.danger:hover { border-color: var(--red); color: var(--red); }
+
+        /* ── PROGRESS BAR ── */
+        .progress-wrap {
+            margin-bottom: 12px;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+            font-family: var(--mono);
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: var(--bg3);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--teal-dim), var(--teal));
+            border-radius: 2px;
+            transition: width 0.5s ease;
+            position: relative;
+        }
+
+        .progress-fill.animating::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 40px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3));
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0%   { transform: translateX(-40px); }
+            100% { transform: translateX(40px); }
+        }
+
+        .progress-fill.error  { background: var(--red); }
+        .progress-fill.done   { background: var(--teal); }
+
+        /* ── PIPELINE STEPS ── */
+        .pipeline-steps {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .step-pill {
+            font-family: var(--mono);
+            font-size: 9px;
+            padding: 3px 7px;
+            border-radius: 3px;
+            background: var(--bg3);
+            color: var(--text-dim);
+            border: 1px solid var(--border);
+            transition: all 0.3s;
+            letter-spacing: 0.04em;
+        }
+
+        .step-pill.active {
+            background: var(--teal-glow);
+            color: var(--teal);
+            border-color: var(--teal-dim);
+        }
+
+        .step-pill.done {
+            background: rgba(0,212,170,0.08);
+            color: var(--teal-dim);
+            border-color: rgba(0,212,170,0.2);
+        }
+
+        /* ── EXPORT BUTTONS ── */
+        .export-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid var(--border);
+        }
+
+        .btn-export {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: 500;
+            border-radius: 5px;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg3);
+            color: var(--text-mid);
+            transition: all 0.15s;
+            font-family: var(--sans);
+            text-decoration: none;
+        }
+
+        .btn-export:hover {
+            border-color: var(--teal-dim);
+            color: var(--teal);
+            background: var(--teal-glow);
+        }
+
+        .export-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 2px;
+        }
+
+        /* ── LOGS ── */
+        .logs-container {
+            margin-top: 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            max-height: 180px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .logs-container.show { display: block; }
+
+        .log-line {
+            font-family: var(--mono);
+            font-size: 10px;
+            padding: 3px 12px;
+            color: var(--text-dim);
+            border-bottom: 1px solid rgba(30,45,69,0.5);
+            line-height: 1.6;
+        }
+
+        .log-line:last-child { border-bottom: none; }
+        .log-line.success { color: var(--teal); }
+        .log-line.error   { color: var(--red); }
+        .log-line.info    { color: var(--blue); }
+        .log-line.warn    { color: var(--amber); }
+
+        /* ── EMPTY STATE ── */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 300px;
+            color: var(--text-dim);
+            text-align: center;
+            gap: 12px;
+        }
+
+        .empty-icon {
+            font-size: 40px;
+            opacity: 0.3;
+        }
+
+        .empty-text {
+            font-size: 14px;
+            color: var(--text-dim);
+        }
+
+        .empty-sub {
+            font-size: 12px;
+            color: var(--text-dim);
+            opacity: 0.6;
+        }
+
+        /* ── STATS BAR ── */
+        .stats-bar {
+            display: flex;
+            gap: 24px;
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .stat-item { text-align: center; }
+
+        .stat-val {
+            font-family: var(--mono);
+            font-size: 22px;
+            font-weight: 500;
+            color: var(--teal);
+            line-height: 1;
+        }
+
+        .stat-lbl {
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        /* ── TOAST ── */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 18px;
+            font-size: 13px;
+            color: var(--text);
+            z-index: 1000;
+            transform: translateY(20px);
+            opacity: 0;
+            transition: all 0.3s;
+            max-width: 320px;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success { border-color: var(--teal-dim); }
+        .toast.error   { border-color: var(--red); }
+
+        /* ── SCROLLBAR ── */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: var(--bg2); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+    </style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header>
+    <div class="logo">
+        <div class="logo-icon">
+            <span class="logo-dna">⬡</span>
+        </div>
+        <span class="logo-text">Nano<span>Var</span></span>
+    </div>
+    <div class="header-right">
+        <div class="docker-status">
+            <div class="docker-dot" id="dockerDot"></div>
+            <span id="dockerLabel">Docker...</span>
+        </div>
+    </div>
+</header>
+
+<!-- ── APP ── -->
+<div class="app">
+
+    <!-- ── PANEL GAUCHE : FORMULAIRE ── -->
+    <div class="panel-left">
+
+        <!-- Mode d'analyse -->
+        <div>
+            <div class="section-title">Mode d'analyse</div>
+            <div class="mode-tabs">
+                <button class="mode-tab active" onclick="setMode('gene')">Gène unique</button>
+                <button class="mode-tab" onclick="setMode('panel')">Panel BED</button>
+                <button class="mode-tab" onclick="setMode('chromosome')">Chromosome</button>
+            </div>
+        </div>
+
+        <!-- Sélection gène/chromosome/panel -->
+        <div id="geneSection">
+            <div class="section-title">Gène cible</div>
+            <div class="form-group">
+                <label>Rechercher un gène</label>
+                <div class="gene-wrapper">
+                    <input type="text" id="geneInput"
+                        placeholder="Ex: BRCA1, CLCN1, TP53..."
+                        autocomplete="off"
+                        oninput="searchGene(this.value)">
+                    <div class="autocomplete-list" id="autocompleteList"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="chromosomeSection" style="display:none;">
+            <div class="section-title">Chromosome cible</div>
+            <div class="form-group">
+                <label>Sélectionner le chromosome</label>
+                <select id="chromosomeSelect">
+                    <option value="">-- Choisir --</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="panelSection" style="display:none;">
+            <div class="section-title">Fichier BED (panel)</div>
+            <div class="form-group">
+                <label>Chemin vers le fichier BED</label>
+                <input type="text" id="bedInput"
+                    placeholder="/chemin/vers/panel.bed">
+            </div>
+        </div>
+
+        <!-- Échantillon -->
+        <div>
+            <div class="section-title">Échantillon</div>
+            <div class="form-group">
+                <label>Nom de l'échantillon</label>
+                <input type="text" id="sampleName"
+                    placeholder="Ex: PATIENT_01, BARCODE09...">
+            </div>
+            <div class="form-group">
+                <label>Dossier FASTQ (reads Nanopore)</label>
+                <input type="text" id="fastqDir"
+                    placeholder="/Users/macpro/Desktop/Nanovar/data/barcode01">
+            </div>
+            <button class="btn-add" onclick="addSample()">
+                + Ajouter l'échantillon
+            </button>
+        </div>
+
+        <!-- Liste des échantillons ajoutés -->
+        <div id="samplesSection" style="display:none;">
+            <div class="section-title">
+                File d'analyse (<span id="samplesCount">0</span>/5)
+            </div>
+            <div class="samples-list" id="samplesList"></div>
+        </div>
+
+        <!-- Bouton lancer -->
+        <button class="btn-launch" id="btnLaunch"
+            onclick="lancerPipeline()" disabled>
+            ▶ Lancer l'analyse
+        </button>
+
+    </div>
+
+    <!-- ── PANEL DROIT : DASHBOARD ── -->
+    <div class="panel-right">
+
+        <!-- Stats -->
+        <div class="stats-bar">
+            <div class="stat-item">
+                <div class="stat-val" id="statTotal">0</div>
+                <div class="stat-lbl">Total</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-val" id="statEnCours" style="color:var(--amber)">0</div>
+                <div class="stat-lbl">En cours</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-val" id="statTermine">0</div>
+                <div class="stat-lbl">Terminés</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-val" id="statErreur" style="color:var(--red)">0</div>
+                <div class="stat-lbl">Erreurs</div>
+            </div>
+        </div>
+
+        <!-- Jobs -->
+        <div class="jobs-grid" id="jobsGrid">
+            <div class="empty-state" id="emptyState">
+                <div class="empty-icon">🧬</div>
+                <div class="empty-text">Aucune analyse en cours</div>
+                <div class="empty-sub">Ajoutez un échantillon et lancez l'analyse</div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── ÉTAT GLOBAL ──
+let currentMode   = 'gene';
+let selectedGene  = null;
+let pendingSamples = [];
+let allJobs       = {};
+let pollingInterval = null;
+
+const STEPS = [
+    'Concat', 'Minimap2', 'Picard',
+    'Clair3', 'ANNOVAR', 'Excel', 'IGV'
+];
+
+// ── INITIALISATION ──
+document.addEventListener('DOMContentLoaded', () => {
+    checkDocker();
+    loadChromosomes();
+    startPolling();
+});
+
+// ── VÉRIFICATION DOCKER ──
+async function checkDocker() {
+    try {
+        const res  = await fetch('/api/verifier_docker');
+        const data = await res.json();
+        const dot  = document.getElementById('dockerDot');
+        const lbl  = document.getElementById('dockerLabel');
+
+        if (data.docker && data.image_ok) {
+            dot.className = 'docker-dot ok';
+            lbl.textContent = `Docker OK — ${data.image}`;
+        } else if (data.docker) {
+            dot.className = 'docker-dot error';
+            lbl.textContent = 'Image Clair3 manquante';
+        } else {
+            dot.className = 'docker-dot error';
+            lbl.textContent = 'Docker non disponible';
+        }
+    } catch(e) {
+        document.getElementById('dockerLabel').textContent = 'Docker ?';
+    }
+}
+
+// ── CHARGEMENT CHROMOSOMES ──
+async function loadChromosomes() {
+    try {
+        const res  = await fetch('/api/chromosomes');
+        const data = await res.json();
+        const sel  = document.getElementById('chromosomeSelect');
+        data.forEach(chr => {
+            const opt = document.createElement('option');
+            opt.value = chr;
+            opt.textContent = chr;
+            sel.appendChild(opt);
+        });
+    } catch(e) {}
+}
+
+// ── GESTION DU MODE ──
+function setMode(mode) {
+    currentMode  = mode;
+    selectedGene = null;
+
+    document.querySelectorAll('.mode-tab').forEach((tab, i) => {
+        tab.classList.toggle('active', ['gene','panel','chromosome'][i] === mode);
+    });
+
+    document.getElementById('geneSection').style.display       = mode === 'gene'       ? 'block' : 'none';
+    document.getElementById('chromosomeSection').style.display = mode === 'chromosome' ? 'block' : 'none';
+    document.getElementById('panelSection').style.display      = mode === 'panel'      ? 'block' : 'none';
+
+    document.getElementById('geneInput').value = '';
+    document.getElementById('autocompleteList').classList.remove('show');
+}
+
+// ── AUTOCOMPLÉTION GÈNE ──
+let searchTimeout = null;
+
+async function searchGene(query) {
+    selectedGene = null;
+    clearTimeout(searchTimeout);
+
+    if (query.length < 2) {
+        document.getElementById('autocompleteList').classList.remove('show');
+        return;
+    }
+
+    searchTimeout = setTimeout(async () => {
+        try {
+            const res   = await fetch(`/api/genes?q=${encodeURIComponent(query)}`);
+            const genes = await res.json();
+            const list  = document.getElementById('autocompleteList');
+
+            if (genes.length === 0) {
+                list.classList.remove('show');
+                return;
+            }
+
+            list.innerHTML = genes.map(g => `
+                <div class="autocomplete-item" onclick="selectGene('${g.name}', '${g.chr}', '${g.description}')">
+                    <span class="gene-name">${g.name}</span>
+                    <span class="gene-info">${g.chr}<br>${g.description}</span>
+                </div>
+            `).join('');
+
+            list.classList.add('show');
+        } catch(e) {}
+    }, 250);
+}
+
+function selectGene(name, chr, desc) {
+    selectedGene = { name, chr, desc };
+    document.getElementById('geneInput').value = `${name} — ${chr}`;
+    document.getElementById('autocompleteList').classList.remove('show');
+}
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.gene-wrapper')) {
+        document.getElementById('autocompleteList').classList.remove('show');
+    }
+});
+
+// ── AJOUTER UN ÉCHANTILLON ──
+function addSample() {
+    const sampleName = document.getElementById('sampleName').value.trim();
+    const fastqDir   = document.getElementById('fastqDir').value.trim();
+
+    if (!sampleName) { showToast('Entrez un nom d\'échantillon', 'error'); return; }
+    if (!fastqDir)   { showToast('Entrez le chemin du dossier FASTQ', 'error'); return; }
+
+    if (currentMode === 'gene' && !selectedGene) {
+        showToast('Sélectionnez un gène dans la liste', 'error'); return;
+    }
+
+    if (currentMode === 'chromosome' && !document.getElementById('chromosomeSelect').value) {
+        showToast('Sélectionnez un chromosome', 'error'); return;
+    }
+
+    if (pendingSamples.length >= 5) {
+        showToast('Maximum 5 échantillons simultanés', 'error'); return;
+    }
+
+    if (pendingSamples.find(s => s.sample_name === sampleName)) {
+        showToast('Cet échantillon est déjà dans la liste', 'error'); return;
+    }
+
+    // Construire l'objet échantillon
+    const sample = {
+        sample_name: sampleName,
+        fastq_dir:   fastqDir,
+        mode:        currentMode,
+        gene_name:   currentMode === 'gene'       ? selectedGene.name :
+                     currentMode === 'chromosome' ? document.getElementById('chromosomeSelect').value : '',
+        bed_file:    currentMode === 'panel'      ? document.getElementById('bedInput').value.trim() : '',
+        display:     currentMode === 'gene'       ? `${selectedGene.name} (${selectedGene.chr})` :
+                     currentMode === 'chromosome' ? document.getElementById('chromosomeSelect').value :
+                     'Panel BED'
+    };
+
+    pendingSamples.push(sample);
+    updateSamplesList();
+
+    // Reset
+    document.getElementById('sampleName').value = '';
+    document.getElementById('fastqDir').value   = '';
+    document.getElementById('geneInput').value  = '';
+    selectedGene = null;
+
+    showToast(`${sampleName} ajouté`, 'success');
+}
+
+function removeSample(index) {
+    pendingSamples.splice(index, 1);
+    updateSamplesList();
+}
+
+function updateSamplesList() {
+    const list    = document.getElementById('samplesList');
+    const section = document.getElementById('samplesSection');
+    const count   = document.getElementById('samplesCount');
+    const btn     = document.getElementById('btnLaunch');
+
+    count.textContent = pendingSamples.length;
+    section.style.display = pendingSamples.length > 0 ? 'block' : 'none';
+    btn.disabled = pendingSamples.length === 0;
+
+    list.innerHTML = pendingSamples.map((s, i) => `
+        <div class="sample-item">
+            <div class="sample-info">
+                <div class="sample-name">${s.sample_name}</div>
+                <div class="sample-meta">${s.display} · ${s.fastq_dir.split('/').pop()}</div>
+            </div>
+            <button class="sample-remove" onclick="removeSample(${i})">×</button>
+        </div>
+    `).join('');
+}
+
+// ── LANCER LE PIPELINE ──
+async function lancerPipeline() {
+    if (pendingSamples.length === 0) return;
+
+    document.getElementById('btnLaunch').disabled = true;
+    document.getElementById('emptyState').style.display = 'none';
+
+    try {
+        const res  = await fetch('/api/lancer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ echantillons: pendingSamples })
+        });
+        const data = await res.json();
+
+        if (data.lances && data.lances.length > 0) {
+            showToast(`${data.lances.length} analyse(s) lancée(s)`, 'success');
+            pendingSamples = [];
+            updateSamplesList();
+        }
+
+        if (data.erreurs && data.erreurs.length > 0) {
+            showToast(data.erreurs[0], 'error');
+        }
+
+    } catch(e) {
+        showToast('Erreur de connexion au serveur', 'error');
+        document.getElementById('btnLaunch').disabled = false;
+    }
+}
+
+// ── POLLING STATUTS ──
+function startPolling() {
+    pollingInterval = setInterval(fetchStatuts, 3000);
+    fetchStatuts();
+}
+
+async function fetchStatuts() {
+    try {
+        const res  = await fetch('/api/statut');
+        const data = await res.json();
+        allJobs = data;
+        renderJobs(data);
+        updateStats(data);
+    } catch(e) {}
+}
+
+// ── RENDU DES JOBS ──
+function renderJobs(jobs) {
+    const grid = document.getElementById('jobsGrid');
+    const empty = document.getElementById('emptyState');
+
+    const jobList = Object.values(jobs);
+
+    if (jobList.length === 0) {
+        empty.style.display = 'flex';
+        // Supprimer les anciennes cartes
+        grid.querySelectorAll('.job-card').forEach(c => c.remove());
+        return;
+    }
+
+    empty.style.display = 'none';
+
+    jobList.forEach(job => {
+        let card = document.getElementById(`job-${job.sample_name}`);
+
+        if (!card) {
+            card = document.createElement('div');
+            card.id = `job-${job.sample_name}`;
+            card.className = `job-card ${job.statut}`;
+            grid.appendChild(card);
+        }
+
+        card.className = `job-card ${job.statut}`;
+        card.innerHTML = buildJobCard(job);
+    });
+
+    // Supprimer les cartes de jobs qui n'existent plus
+    grid.querySelectorAll('.job-card').forEach(card => {
+        const name = card.id.replace('job-', '');
+        if (!jobs[name]) card.remove();
+    });
+}
+
+function buildJobCard(job) {
+    const badgeClass = `badge-${job.statut}`;
+    const badgeLabel = {
+        'en_attente': 'EN ATTENTE',
+        'en_cours':   'EN COURS',
+        'termine':    'TERMINÉ',
+        'erreur':     'ERREUR',
+        'annule':     'ANNULÉ'
+    }[job.statut] || job.statut.toUpperCase();
+
+    // Calculer l'étape active
+    const etapeIndex = getEtapeIndex(job.etape);
+    const stepsHtml = STEPS.map((step, i) => {
+        const isDone   = i < etapeIndex;
+        const isActive = i === etapeIndex && job.statut === 'en_cours';
+        const cls = isDone ? 'done' : isActive ? 'active' : '';
+        return `<span class="step-pill ${cls}">${step}</span>`;
+    }).join('');
+
+    // Barre de progression
+    const progClass = job.statut === 'erreur'  ? 'error' :
+                      job.statut === 'termine' ? 'done'  :
+                      job.statut === 'en_cours' ? 'animating' : '';
+
+    // Boutons d'export si terminé
+    let exportHtml = '';
+    if (job.statut === 'termine' && job.resultats) {
+        const exports = [
+            { key: 'excel',   label: '📊 Excel',  color: '#185FA5' },
+            { key: 'vcf',     label: '🧬 VCF',    color: '#1D9E75' },
+            { key: 'vcf_txt', label: '📄 Table',  color: '#7F77DD' },
+            { key: 'bam',     label: '🗂 BAM',    color: '#854F0B' },
+        ];
+
+        const btns = exports
+            .filter(e => job.resultats[e.key])
+            .map(e => `
+                <a class="btn-export"
+                   href="/api/telecharger/${job.sample_name}/${e.key}"
+                   download>
+                    ${e.label}
+                </a>`)
+            .join('');
+
+        if (btns) exportHtml = `<div class="export-row">${btns}</div>`;
+    }
+
+    // Infos meta
+    const meta = [
+        job.gene_name ? `🧬 ${job.gene_name}` : '',
+        job.debut     ? `⏱ ${job.debut}` : '',
+        job.fin       ? `→ ${job.fin}` : '',
+    ].filter(Boolean).join('  ·  ');
+
+    return `
+        <div class="job-header">
+            <div class="job-title">
+                <span class="job-name">${job.sample_name}</span>
+                <span class="job-badge ${badgeClass}">${badgeLabel}</span>
+            </div>
+            <div class="job-actions">
+                <button class="btn-sm" onclick="toggleLogs('${job.sample_name}')">Logs</button>
+                ${job.statut === 'en_cours' ?
+                    `<button class="btn-sm danger" onclick="annulerJob('${job.sample_name}')">Annuler</button>` : ''}
+                ${['termine','erreur','annule'].includes(job.statut) ?
+                    `<button class="btn-sm danger" onclick="supprimerJob('${job.sample_name}')">✕</button>` : ''}
+            </div>
+        </div>
+
+        <div class="progress-wrap">
+            <div class="progress-header">
+                <span>${job.etape || '...'}</span>
+                <span>${job.progression}%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill ${progClass}"
+                     style="width:${job.progression}%"></div>
+            </div>
+        </div>
+
+        <div class="pipeline-steps">${stepsHtml}</div>
+
+        ${meta ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;">${meta}</div>` : ''}
+
+        ${exportHtml}
+
+        <div class="logs-container" id="logs-${job.sample_name}"></div>
+    `;
+}
+
+function getEtapeIndex(etape) {
+    if (!etape) return -1;
+    if (etape.includes('Concat'))    return 0;
+    if (etape.includes('Minimap'))   return 1;
+    if (etape.includes('Picard'))    return 2;
+    if (etape.includes('Clair3'))    return 3;
+    if (etape.includes('ANNOVAR'))   return 4;
+    if (etape.includes('Excel'))     return 5;
+    if (etape.includes('IGV'))       return 6;
+    if (etape.includes('Terminé'))   return 7;
+    return -1;
+}
+
+// ── LOGS ──
+async function toggleLogs(sampleName) {
+    const container = document.getElementById(`logs-${sampleName}`);
+    if (!container) return;
+
+    if (container.classList.contains('show')) {
+        container.classList.remove('show');
+        return;
+    }
+
+    try {
+        const res  = await fetch(`/api/logs/${sampleName}`);
+        const data = await res.json();
+        const logs = data.logs || [];
+
+        container.innerHTML = logs.map(line => {
+            const cls = line.includes('✅') || line.includes('SUCCESS') ? 'success' :
+                        line.includes('❌') || line.includes('ERROR')   ? 'error'   :
+                        line.includes('⚠️') || line.includes('WARNING') ? 'warn'    :
+                        line.includes('[INFO]')                          ? 'info'    : '';
+            return `<div class="log-line ${cls}">${line}</div>`;
+        }).join('');
+
+        container.classList.add('show');
+        container.scrollTop = container.scrollHeight;
+    } catch(e) {}
+}
+
+// ── ANNULER UN JOB ──
+async function annulerJob(sampleName) {
+    if (!confirm(`Annuler l'analyse de ${sampleName} ?`)) return;
+    try {
+        await fetch(`/api/annuler/${sampleName}`, { method: 'POST' });
+        showToast(`${sampleName} annulé`, 'success');
+    } catch(e) {
+        showToast('Erreur lors de l\'annulation', 'error');
+    }
+}
+
+// ── SUPPRIMER UN JOB ──
+async function supprimerJob(sampleName) {
+    try {
+        await fetch(`/api/supprimer/${sampleName}`, { method: 'DELETE' });
+        fetchStatuts();
+    } catch(e) {}
+}
+
+// ── STATS ──
+function updateStats(jobs) {
+    const list = Object.values(jobs);
+    document.getElementById('statTotal').textContent    = list.length;
+    document.getElementById('statEnCours').textContent  = list.filter(j => j.statut === 'en_cours' || j.statut === 'en_attente').length;
+    document.getElementById('statTermine').textContent  = list.filter(j => j.statut === 'termine').length;
+    document.getElementById('statErreur').textContent   = list.filter(j => j.statut === 'erreur').length;
+}
+
+// ── TOAST ──
+function showToast(message, type = 'success') {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className   = `toast ${type} show`;
+    setTimeout(() => { toast.className = `toast ${type}`; }, 3000);
+}
+</script>
+
+</body>
+</html>
