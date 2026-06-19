@@ -69,14 +69,30 @@ def update_job(sample_name, **kwargs):
         if sample_name in jobs:
             jobs[sample_name].update(kwargs)
 
+def get_log_file_path(sample_name):
+    """Chemin du fichier de log persistant sur disque pour un échantillon"""
+    return os.path.join(OUTPUT_DIR, sample_name, "pipeline.log")
+
 def add_log(sample_name, message):
-    """Ajoute une ligne de log à un job"""
+    """Ajoute une ligne de log à un job — en mémoire ET sur disque
+    Le fichier disque permet de consulter les logs même après
+    redémarrage du serveur Flask ou suppression du job de la mémoire
+    """
     with jobs_lock:
         if sample_name in jobs:
             jobs[sample_name]['logs'].append(message)
-            # Garder uniquement les 200 dernières lignes
-            if len(jobs[sample_name]['logs']) > 200:
-                jobs[sample_name]['logs'] = jobs[sample_name]['logs'][-200:]
+            # Garder uniquement les 300 dernières lignes en mémoire
+            if len(jobs[sample_name]['logs']) > 300:
+                jobs[sample_name]['logs'] = jobs[sample_name]['logs'][-300:]
+
+    # Écriture sur disque — persistant, jamais tronqué
+    try:
+        log_path = get_log_file_path(sample_name)
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, 'a', encoding='utf-8') as f:
+            f.write(message + "\n")
+    except Exception:
+        pass
 
 def parse_progression(line):
     """Extrait la progression depuis une ligne de log du pipeline
@@ -135,6 +151,11 @@ def run_pipeline_job(sample_name, fastq_dir, mode, gene_name=None, bed_file=None
         # Préparer le dossier de sortie de l'échantillon
         sample_output_dir = os.path.join(OUTPUT_DIR, sample_name)
         os.makedirs(sample_output_dir, exist_ok=True)
+
+        # Réinitialiser le fichier de log pour ce nouveau run
+        log_path = get_log_file_path(sample_name)
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write(f"=== NanoVar — Démarrage {sample_name} — {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
 
         # Construire la commande selon le mode
         cmd = [
@@ -397,13 +418,23 @@ def get_statut():
 
 @app.route('/api/logs/<sample_name>', methods=['GET'])
 def get_logs(sample_name):
-    """Retourne les logs d'un échantillon spécifique"""
+    """Retourne les logs d'un échantillon — depuis la mémoire en priorité,
+    avec repli sur le fichier disque si le job n'est plus en mémoire
+    (ex: après redémarrage du serveur Flask)
+    """
     with jobs_lock:
-        if sample_name not in jobs:
-            return jsonify({"erreur": "Échantillon non trouvé"}), 404
-        logs_list = jobs[sample_name]['logs'].copy()
+        if sample_name in jobs:
+            logs_list = jobs[sample_name]['logs'].copy()
+            return jsonify({"logs": logs_list, "source": "memoire"})
 
-    return jsonify({"logs": logs_list})
+    # Repli : lecture du fichier de log sur disque
+    log_path = get_log_file_path(sample_name)
+    if os.path.exists(log_path):
+        with open(log_path, 'r', encoding='utf-8') as f:
+            lines = [l.rstrip("\n") for l in f.readlines()]
+        return jsonify({"logs": lines[-300:], "source": "disque"})
+
+    return jsonify({"erreur": "Échantillon non trouvé"}), 404
 
 @app.route('/api/annuler/<sample_name>', methods=['POST'])
 def annuler_job(sample_name):
