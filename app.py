@@ -190,12 +190,16 @@ def run_pipeline_job(sample_name, fastq_dir, mode, gene_name=None, bed_file=None
         add_log(sample_name, f"[INFO] Lancement: {' '.join(cmd)}")
 
         # Lancer le pipeline et lire les logs en temps réel
+        # errors='replace' évite un crash si un outil bio (samtools, minimap2)
+        # écrit un octet non-UTF8 dans sa sortie (barres de progression, etc.)
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             bufsize=1,
-            universal_newlines=True
+            universal_newlines=True,
+            encoding='utf-8',
+            errors='replace'
         )
 
         # Stocker le PID pour permettre l'annulation
