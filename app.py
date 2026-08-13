@@ -570,10 +570,20 @@ if __name__ == '__main__':
     print(f"🧬 Gènes chargés  : {len(GENES_DB)}")
     print(f"🐳 Clair3 image   : {CONFIG.get('clair3_docker_image', '')}")
     print("=" * 55)
-    print("🌐 Ouvrir dans le navigateur : http://localhost:5000")
+    print("🌐 Ouverture du navigateur...")
     print("=" * 55)
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    # Ouvrir le navigateur automatiquement après 1.5 secondes
+    # (délai pour laisser Flask démarrer avant d'ouvrir le navigateur)
+    import threading
+    import webbrowser
+    def open_browser():
+        import time
+        time.sleep(1.5)
+        webbrowser.open("http://localhost:5000")
+    threading.Thread(target=open_browser, daemon=True).start()
 
     app.run(
         host='0.0.0.0',

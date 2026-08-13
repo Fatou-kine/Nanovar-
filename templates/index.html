@@ -7,19 +7,19 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg:        #0a0e14;
-            --bg2:       #111720;
-            --bg3:       #1a2233;
-            --border:    #1e2d45;
-            --teal:      #00d4aa;
-            --teal-dim:  #00a882;
-            --teal-glow: rgba(0,212,170,0.12);
-            --amber:     #f5a623;
-            --red:       #e05c5c;
-            --blue:      #4a9eff;
-            --text:      #e2e8f0;
-            --text-dim:  #7a8fa6;
-            --text-mid:  #a0b0c8;
+            --bg:        #f8f9fb;
+            --bg2:       #ffffff;
+            --bg3:       #f0f2f6;
+            --border:    #dde2ec;
+            --teal:      #008f72;
+            --teal-dim:  #006e58;
+            --teal-glow: rgba(0,143,114,0.10);
+            --amber:     #c47d0a;
+            --red:       #c0392b;
+            --blue:      #2563eb;
+            --text:      #1a2233;
+            --text-dim:  #6b7a95;
+            --text-mid:  #3d4f6b;
             --mono:      'IBM Plex Mono', monospace;
             --sans:      'IBM Plex Sans', sans-serif;
         }
@@ -1169,8 +1169,7 @@ function renderJobs(jobs) {
     });
 
     // Restaurer les boîtes de logs qui étaient ouvertes avant ce rafraîchissement
-    // (sinon elles se referment toutes seules toutes les 3 secondes)
-    openLogs.forEach(sampleName => {
+    openLogs.forEach((state, sampleName) => {
         if (jobs[sampleName]) refreshLogsContent(sampleName);
     });
 }
@@ -1255,7 +1254,10 @@ function getEtapeIndex(etape) {
 }
 
 // ── LOGS — persistants tant que l'utilisateur ne ferme pas ──
-let openLogs = new Set();
+// openLogs = Map(sampleName → { pinned: bool })
+// pinned = true  → l'utilisateur est en bas, on suit automatiquement
+// pinned = false → l'utilisateur a remonté, on ne bouge plus
+let openLogs = new Map();
 
 async function toggleLogs(sampleName) {
     if (openLogs.has(sampleName)) {
@@ -1264,18 +1266,31 @@ async function toggleLogs(sampleName) {
         if (container) container.classList.remove('show');
         return;
     }
-    openLogs.add(sampleName);
+    // Ouvrir — commence avec auto-scroll activé
+    openLogs.set(sampleName, { pinned: true });
     await refreshLogsContent(sampleName);
 }
 
 async function refreshLogsContent(sampleName) {
     const container = document.getElementById(`logs-${sampleName}`);
     if (!container) return;
+
+    const state = openLogs.get(sampleName);
+    if (!state) return;
+
+    // Mémoriser la position de scroll et si l'utilisateur est en bas
+    // AVANT de remplacer le contenu
+    const scrollTop    = container.scrollTop;
+    const scrollHeight = container.scrollHeight;
+    const clientHeight = container.clientHeight;
+    const atBottom     = scrollHeight - scrollTop - clientHeight < 40;
+
+    // Mettre à jour l'état pinned selon la position actuelle
+    state.pinned = atBottom;
+
     try {
         const res  = await fetch(`/api/logs/${sampleName}`);
         const data = await res.json();
-        const wasScrolledToBottom =
-            container.scrollHeight - container.scrollTop - container.clientHeight < 30;
 
         container.innerHTML = `
             <div class="logs-close-row">
@@ -1287,17 +1302,39 @@ async function refreshLogsContent(sampleName) {
                             line.includes('❌') ? 'error'   :
                             line.includes('⚠️') ? 'warn'    :
                             line.includes('[INFO]') ? 'info' : '';
-                return `<div class="log-line ${cls}">${line}</div>`;
+                return `<div class="log-line ${cls}">${escapeHtml(line)}</div>`;
             }).join('')}
         `;
+
         container.classList.add('show');
 
-        // Ne réajuster le scroll en bas que si l'utilisateur y était déjà
-        // (évite de lui arracher la lecture s'il a remonté dans les logs)
-        if (wasScrolledToBottom) {
+        // Écouter le scroll pour détecter si l'utilisateur remonte
+        container.onscroll = () => {
+            const s = openLogs.get(sampleName);
+            if (!s) return;
+            const atBot = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+            s.pinned = atBot;
+        };
+
+        // Ne descendre en bas que si l'utilisateur y était (pinned)
+        if (state.pinned) {
             container.scrollTop = container.scrollHeight;
+        } else {
+            // Restaurer approximativement la position de lecture
+            // (le contenu a grandi, on garde le ratio)
+            if (scrollHeight > 0) {
+                container.scrollTop = scrollTop * (container.scrollHeight / scrollHeight);
+            }
         }
+
     } catch(e) {}
+}
+
+function escapeHtml(str) {
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 }
 
 // ── ANNULER ──
