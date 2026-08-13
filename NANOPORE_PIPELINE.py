@@ -248,7 +248,14 @@ def run_clair3(dedup_bam, clair3_output_dir, sample_name, ctg_name=None, bed_fil
     """ETAPE 4/7 — Appel de variants avec Clair3 via Docker
     Image  : hkubal/clair3:v1.0.10 (validée et testée)
     Modèle : r1041_e82_400bps_sup_v430 (P2 Solo, R10.4.1, SUP 400bps)
-    Monté depuis le disque local vers /opt/models/ dans le conteneur
+
+    IMPORTANT — Solution au deadlock Docker sur Mac :
+    Docker Desktop sur Mac génère un OSError Errno 35 (Resource deadlock)
+    quand plusieurs volumes sont montés simultanément et qu'un gros fichier
+    indexé (.fai) est lu en parallèle par un sous-processus.
+    Solution : copier BAM, BAI, hg38.fa, hg38.fa.fai et BED dans un seul
+    dossier de travail temporaire, monter UNIQUEMENT ce dossier dans Docker,
+    puis récupérer les résultats et nettoyer.
     """
     log("[ETAPE 4/7] Clair3 appel de variants via Docker")
 
@@ -256,55 +263,114 @@ def run_clair3(dedup_bam, clair3_output_dir, sample_name, ctg_name=None, bed_fil
     check_file_exists(REFERENCE_GENOME, "Génome de référence")
     check_file_exists(CLAIR3_MODEL_LOCAL, "Modèle Clair3 local")
 
-    os.makedirs(clair3_output_dir, exist_ok=True)
-    os.chmod(clair3_output_dir, 0o777)
+    # Dossier de travail unique — contient TOUT ce que Docker doit voir
+    work_dir   = os.path.join(os.path.dirname(dedup_bam), "clair3_workdir")
+    output_dir = os.path.join(work_dir, "output")
+    os.makedirs(work_dir,   exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+    os.chmod(work_dir,   0o777)
+    os.chmod(output_dir, 0o777)
 
-    sample_dir   = os.path.dirname(dedup_bam)
-    ref_dir      = os.path.dirname(REFERENCE_GENOME)
-    ref_filename = os.path.basename(REFERENCE_GENOME)
     bam_filename = os.path.basename(dedup_bam)
+    bai_file     = dedup_bam + ".bai"
+    ref_filename = os.path.basename(REFERENCE_GENOME)
+    fai_file     = REFERENCE_GENOME + ".fai"
 
-    # Construction des options Clair3
+    # Copier BAM + BAI dans le dossier de travail
+    log("   → Copie BAM vers dossier de travail Docker...")
+    import shutil
+    shutil.copy2(dedup_bam, os.path.join(work_dir, bam_filename))
+    if os.path.exists(bai_file):
+        shutil.copy2(bai_file, os.path.join(work_dir, bam_filename + ".bai"))
+    else:
+        run_command(
+            f"samtools index {os.path.join(work_dir, bam_filename)}",
+            "Erreur indexation BAM pour Docker", timeout=600
+        )
+
+    # Copier le .fai directement (19KB — instantané)
+    # Les symlinks ne fonctionnent pas dans Docker Desktop Mac
+    if os.path.exists(fai_file):
+        shutil.copy2(fai_file, os.path.join(work_dir, ref_filename + ".fai"))
+        log("   → hg38.fa.fai copié")
+    else:
+        raise FileNotFoundError(f"❌ Index hg38.fa.fai manquant: {fai_file}")
+
+    # Copier le fichier BED si fourni
+    bed_in_docker = ""
+    if bed_file and os.path.exists(bed_file):
+        bed_dest = os.path.join(work_dir, os.path.basename(bed_file))
+        shutil.copy2(bed_file, bed_dest)
+        bed_in_docker = f"--bed_fn=/data/{os.path.basename(bed_file)}"
+        log(f"   → Fichier BED: {os.path.basename(bed_file)}")
+
+    # Option chromosome
+    ctg_opt = f"--ctg_name={ctg_name}" if ctg_name and not bed_in_docker else ""
+    if ctg_name:
+        log(f"   → Chromosome ciblé: {ctg_name}")
+
+    # Hard link vers hg38.fa — instantané, zéro espace supplémentaire
+    # Docker le voit comme un vrai fichier local dans work_dir
+    # (les symlinks et montages fichier unique échouent sur VirtioFS Mac)
+    ref_link = os.path.join(work_dir, ref_filename)
+    if not os.path.exists(ref_link):
+        try:
+            os.link(REFERENCE_GENOME, ref_link)
+            log("   → hg38.fa lié (hard link)")
+        except OSError:
+            # Fallback: copie si hard link impossible (filesystems différents)
+            log("   → hg38.fa : hard link impossible, copie en cours (3GB)...")
+            import shutil as _shutil
+            _shutil.copy2(REFERENCE_GENOME, ref_link)
+            log("   → hg38.fa copié")
+
+    # Commande Docker avec UN SEUL montage de données
     clair3_opts = (
-        f"--bam_fn=/data/sample/{bam_filename} "
-        f"--ref_fn=/data/ref/{ref_filename} "
+        f"--bam_fn=/data/{bam_filename} "
+        f"--ref_fn=/data/{ref_filename} "
         f"--threads={THREADS} "
         f"--platform=ont "
         f"--model_path=/opt/models/r1041_e82_400bps_sup_v430 "
         f"--output=/data/output "
-        f"--no_phasing_for_fa"
-    )
+        f"--no_phasing_for_fa "
+        f"{ctg_opt} "
+        f"{bed_in_docker}"
+    ).strip()
 
-    # Limiter à un chromosome (gène unique)
-    if ctg_name:
-        clair3_opts += f" --ctg_name={ctg_name}"
-        log(f"   → Chromosome ciblé: {ctg_name}")
-
-    # Utiliser un fichier BED (panel de gènes)
-    if bed_file and os.path.exists(bed_file):
-        bed_filename = os.path.basename(bed_file)
-        clair3_opts += f" --bed_fn=/data/sample/{bed_filename}"
-        log(f"   → Fichier BED: {bed_filename}")
-
-    # Commande Docker complète — validée et testée
     cmd = (
         f'docker run --rm '
         f'--user $(id -u):$(id -g) '
-        f'-v {sample_dir}:/data/sample '
-        f'-v {ref_dir}:/data/ref '
-        f'-v {clair3_output_dir}:/data/output '
-        f'-v {CLAIR3_MODEL_LOCAL}:/opt/models/r1041_e82_400bps_sup_v430 '
+        f'-v "{work_dir}":/data '
+        f'-v "{CLAIR3_MODEL_LOCAL}":/opt/models/r1041_e82_400bps_sup_v430 '
         f'{CLAIR3_IMAGE} '
         f'/bin/bash -c "source activate clair3 && /opt/bin/run_clair3.sh {clair3_opts}"'
     )
 
     run_command(cmd, "Erreur Clair3 Docker", timeout=57600)
 
+    # Récupérer le VCF depuis le dossier de travail
+    vcf_in_workdir = os.path.join(output_dir, "merge_output.vcf.gz")
+    check_file_exists(vcf_in_workdir, "VCF Clair3 (merge_output.vcf.gz)")
+
+    # Copier les résultats vers le dossier final (avec sous-dossiers)
+    os.makedirs(clair3_output_dir, exist_ok=True)
+    if os.path.exists(clair3_output_dir):
+        shutil.rmtree(clair3_output_dir)
+    shutil.copytree(output_dir, clair3_output_dir)
+
+    # Nettoyer le dossier de travail temporaire
+    try:
+        shutil.rmtree(work_dir)
+        log("   → Dossier de travail Docker nettoyé")
+    except Exception as e:
+        log(f"   ⚠️  Nettoyage workdir: {e}")
+
     vcf_output = os.path.join(clair3_output_dir, "merge_output.vcf.gz")
-    check_file_exists(vcf_output, "VCF Clair3 (merge_output.vcf.gz)")
+    check_file_exists(vcf_output, "VCF Clair3 final")
 
     log(f"✅ Clair3 terminé: {vcf_output}")
     return vcf_output
+
 
 def run_annovar(vcf_file, annovar_prefix):
     """ETAPE 5/7 — Annotation des variants avec ANNOVAR
@@ -315,10 +381,10 @@ def run_annovar(vcf_file, annovar_prefix):
     check_file_exists(vcf_file, "Fichier VCF Clair3")
 
     cmd = (
-        f"perl {os.path.join(ANNOVAR_DIR, 'table_annovar.pl')} "
-        f"{vcf_file} {HUMANDB} "
+        f"perl \"{os.path.join(ANNOVAR_DIR, 'table_annovar.pl')}\" "
+        f"\"{vcf_file}\" \"{HUMANDB}\" "
         f"-buildver hg38 "
-        f"-out {annovar_prefix} "
+        f"-out \"{annovar_prefix}\" "
         f"-protocol refGene,clinvar_20240611,gnomad_genome,dbnsfp47a,avsnp151 "
         f"-operation g,f,f,f,f "
         f"-nastring . "
